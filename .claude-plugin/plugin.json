@@ -1,0 +1,6 @@
+{
+  "name": "cache-timer",
+  "version": "0.2.0",
+  "description": "A cache countdown above the prompt with Auto compact or status check before it goes cold, Compact now and Handoff buttons, real step details in the step line, and /timer to hide or show it.",
+  "types": "./types/index.d.ts"
+}
