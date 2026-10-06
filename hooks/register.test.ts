@@ -72,10 +72,10 @@ test('the terminal bar has the same controls, and each one works by click', asyn
 
 test('the idle bar has working Compact and Handoff buttons', async ($, on) => {
   const pressed: string[] = []
-  on('session.compact', () => {
+  on('command.run', { command: 'compact' }, () => {
     pressed.push('compact')
 
-    return { skip: 'test' } as never
+    return {} as never
   })
   on('prompt.submit', (_, e) => {
     pressed.push(e.text)
@@ -89,6 +89,19 @@ test('the idle bar has working Compact and Handoff buttons', async ($, on) => {
   await ui.press({ key: 'handoff' } as never)
 
   expect(pressed).toEqual(['compact', 'Write a handoff for this session with the ce-handoff skill.'])
+})
+
+test('a compaction that fails says so on the button', async ($, on) => {
+  const flags = watch(on, 'failed')
+  on('command.run', { command: 'compact' }, () => {
+    throw new Error('refused')
+  })
+  await idle($, on)
+
+  const ui = await $.ui.mount({ plugin: 'cache-timer', surface: 'desktop', component: 'AbovePrompt', props: BAND })
+  await ui.press({ key: 'compact' } as never)
+
+  expect(flags.at(-1)).toBe(true)
 })
 
 test('/timer hides the bar, and again shows it', async ($, on) => {
@@ -112,7 +125,7 @@ test('auto-compact fires once in the last five minutes, and only when switched o
   on('session.start', (_, e) => ({ cwd: (e as { cwd: string }).cwd }) as never)
   on('fs.write' as never, (() => ({ value: undefined })) as never)
   let compactions = 0
-  on('session.compact', () => {
+  on('command.run', { command: 'compact' }, () => {
     compactions += 1
 
     return {} as never

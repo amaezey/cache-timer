@@ -19,6 +19,8 @@ const warmUntil = atom({ plugin: 'cache-timer', key: 'warmUntil' } as const, nul
 // terminal once a minute.
 const second = atom({ plugin: 'cache-timer', key: 'second' } as const, null)
 const minute = atom({ plugin: 'cache-timer', key: 'minute' } as const, null)
+// True after a compaction failed, until the next turn. The button says so.
+const failed = atom({ plugin: 'cache-timer', key: 'failed' } as const, false)
 const LEADS = [2, 5, 10]
 // `short` is the terminal's: its dropdown is as wide as its longest option.
 const CHOICES: readonly { is: Action; label: string; short: string }[] = [
@@ -230,6 +232,24 @@ async function secondsLeft($: EngineInterface) {
   return until === null ? null : Math.max(Math.ceil((until - (await $.clock.now())) / 1000), 0)
 }
 
+// Compacts by running /compact as a command: `$.session.compact` is refused
+// in the desktop app, and the command works there and in the terminal. A
+// failure shows on the button, since the desktop shows a mod's toasts nowhere.
+async function compact($: EngineInterface) {
+  try {
+    await $.command.run({ command: 'compact' })
+    // The compaction was itself a request, so the cache is warm again.
+    await stamp($)
+    await update($, failed, () => false)
+
+    return true
+  } catch {
+    await update($, failed, () => true)
+
+    return false
+  }
+}
+
 // The auto action runs once per idle stretch. Each one restarts the hour,
 // so without this an unattended session would act again every 55 minutes.
 // `isOwnTurn` marks the turn auto-status starts, which must not count as the
@@ -247,23 +267,15 @@ async function act($: EngineInterface, left: number) {
 
   hasActed = true
 
-  try {
-    if (what === 'status') {
-      isOwnTurn = true
-      void $.prompt.submit({ text: STATUS, asUser: true })
+  if (what === 'status') {
+    isOwnTurn = true
+    void $.prompt.submit({ text: STATUS, asUser: true })
 
-      return
-    }
+    return
+  }
 
-    const { skip } = await $.session.compact()
-
-    if (skip === undefined) {
-      // The compaction was itself a request, so the cache is warm again.
-      await stamp($)
-      $.ui.toast('Compacted before the cache went cold')
-    }
-  } catch {
-    // A turn started in the same moment: it will keep the cache warm itself.
+  if (await compact($)) {
+    $.ui.toast('Compacted before the cache went cold')
   }
 }
 
@@ -337,6 +349,7 @@ export const register: Register = on => {
       hasActed = false
     }
 
+    await update($, failed, () => false)
     await stamp($)
     await tick($)
     await update($, busy, () => true)
@@ -397,6 +410,7 @@ export const register: Register = on => {
     const what = await read($, action)
     const minutes = await read($, lead)
     const preferred = await read($, prefer)
+    const compactLabel = (await read($, failed)) ? 'Compact failed' : 'Compact now'
     const wait = async (picked: string) => {
       await update($, lead, () => Number(picked))
       await $.store.set('lead', Number(picked))
@@ -446,7 +460,7 @@ export const register: Register = on => {
             </Box>
           )}
           <Text dimColor>{'  ·  '}</Text>
-          <Button key="compact" plain hotkey="c" label="Compact now" onPress={() => $.session.compact()} />
+          <Button key="compact" plain hotkey="c" label={compactLabel} onPress={() => compact($)} />
           <Text dimColor>{'  ·  '}</Text>
           <Button key="handoff" plain hotkey="h" label="Handoff" onPress={() => $.prompt.submit({ text: HANDOFF, asUser: true })} />
         </Box>
@@ -486,7 +500,7 @@ export const register: Register = on => {
               />
             )}
             <Svg source={spacer(8, 1)} alt="spacer" width={8} height={1} />
-            <Button key="compact" label="Compact now" onPress={() => $.session.compact()} />
+            <Button key="compact" label={compactLabel} onPress={() => compact($)} />
             <Svg source={spacer(8, 1)} alt="spacer" width={8} height={1} />
             <Button key="handoff" label="Handoff" onPress={() => $.prompt.submit({ text: HANDOFF, asUser: true })} />
           </Box>
